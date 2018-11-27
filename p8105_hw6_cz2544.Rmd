@@ -141,11 +141,20 @@ bthwt_data = bthwt_data %>%
          mrace = as.factor(mrace)) 
 
 skimr::skim(bthwt_data)
+
+#look at distribution
+ggplot(data = bthwt_data, aes(x = bwt)) + geom_histogram(bins = 100)
+
+#look at outlier of key variables
+ggplot(data = bthwt_data, aes(x = bwt, y = gaweeks)) + geom_point()
+ggplot(data = bthwt_data, aes(x = bwt, y = delwt)) + geom_point()
+ggplot(data = bthwt_data, aes(x = bwt, y = wtgain)) + geom_point()
 ```
 
 Comment: There is `r sum(is.na(bthwt_data))` missing data in this dataset. There are `r sum(bthwt_data$babysex == 1)` boys and `r sum(bthwt_data$babysex == 2)` girls. Baby’s birth weight is highly correlated with bhead(baby’s head circumference at birth (centimeters)) and 
-blength (baby’s length at birth (centimeteres)), which are different dimentions of measurement of the babies' growth. While gaweeks (gestational age in weeks), wtgain (mother’s weight gain during pregnancy (pounds)), delwt (mother’s weight at delivery (pounds)) and mrace (mother’s race (1= White, 2 = Black, 3 = Asian, 4 = Puerto Rican, 8 = Other)) showed correlation greater than 0.2. Among these promising variables, wtgain, delwt are all indicators of mother's weight condition, which will be related to mother's body features like height and bmi. Mother's race is highly correlated with father's race, but frace is not that much related to baby birth weight, frace is likely to be a confounder.
+blength (baby’s length at birth (centimeteres)), which are different dimentions of measurement of the babies' growth. While gaweeks (gestational age in weeks), wtgain (mother’s weight gain during pregnancy (pounds)), delwt (mother’s weight at delivery (pounds)) and mrace (mother’s race (1= White, 2 = Black, 3 = Asian, 4 = Puerto Rican, 8 = Other)) showed correlation greater than 0.2. Among these promising variables, wtgain, delwt are all indicators of mother's weight condition, which will be related to mother's body features like height and bmi, and also related to the term of pregnancy. Mother's race is highly correlated with father's race, but frace is not that much related to baby birth weight, frace is likely to be a confounder.
 
+There are several data points with gestational weeks less than 25 weeks seem far away from the rest of the data points, might deserve special investigation.
 
 Propose a regression model for birthweight. This model may be based on a hypothesized structure for the factors that underly birthweight, on a data-driven model-building process, or a combination of the two. Describe your modeling process and show a plot of model residuals against fitted values – use add_predictions and  add_residuals in making this plot.
 
@@ -194,7 +203,7 @@ One using length at birth and gestational age as predictors (main effects only)
 One using head circumference, length, sex, and all interactions (including the three-way interaction) between these
 Make this comparison in terms of the cross-validated prediction error; use crossv_mc and functions in purrr as appropriate.
 
-```{r bthwt_cv_rmse}
+```{r bthwt_cv_rmse, warning=FALSE}
 set.seed(1)
 
 cv_df =
