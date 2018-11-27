@@ -9,9 +9,9 @@ output: github_document
 library(p8105.datasets)
 library(tidyverse)
 library(ggridges)
-library(viridis)
-library(patchwork)
 library(pander)
+library(modelr)
+library(mgcv)
 panderOptions('round', 3)
 panderOptions('keep.trailing.zeros', TRUE)
 knitr::opts_chunk$set(
@@ -102,7 +102,7 @@ Comment: Among the 47 cities, only 3 have ORs slightly over 1 (`r pull(tail(homi
 
 ##Problem 2
 
-In this probelm, you will analyze data gathered to understand the effects of several variables on a child’s birthweight. This dataset, available here, consists of roughly 4000 children and includes the following variables:
+In this probelm, you will analyze data gathered to understand the effects of several variables on a child’s birthweight. This dataset, consists of roughly 4000 children and includes the following variables:
 
 babysex: baby’s sex (male = 1, female = 2)
 bhead: baby’s head circumference at birth (centimeters)
@@ -124,9 +124,69 @@ ppbmi: mother’s pre-pregnancy BMI
 ppwt: mother’s pre-pregnancy weight (pounds)
 smoken: average number of cigarettes smoked per day during pregnancy
 wtgain: mother’s weight gain during pregnancy (pounds)
+
 Load and clean the data for regression analysis (i.e. convert numeric to factor where appropriate, check for missing data, etc.).
 
+```{r load_birthweight}
+bthwt_data = read.csv("birthweight.csv") 
+#look at the variables
+skimr::skim(bthwt_data)
+#first impression of correlation
+round(cor(bthwt_data),3)
+
+#tidy
+bthwt_data = bthwt_data %>% 
+  mutate(babysex = as.factor(babysex),
+         frace = as.factor(frace),
+         mrace = as.factor(mrace)) 
+
+skimr::skim(bthwt_data)
+```
+
+Comment: There is `r sum(is.na(bthwt_data))` missing data in this dataset. There are `r sum(bthwt_data$babysex == 1)` boys and `r sum(bthwt_data$babysex == 2)` girls. Baby’s birth weight is highly correlated with bhead(baby’s head circumference at birth (centimeters)) and 
+blength (baby’s length at birth (centimeteres)), which are different dimentions of measurement of the babies' growth. While gaweeks (gestational age in weeks), wtgain (mother’s weight gain during pregnancy (pounds)), delwt (mother’s weight at delivery (pounds)) and mrace (mother’s race (1= White, 2 = Black, 3 = Asian, 4 = Puerto Rican, 8 = Other)) showed correlation greater than 0.2. Among these promising variables, wtgain, delwt are all indicators of mother's weight condition, which will be related to mother's body features like height and bmi. Mother's race is highly correlated with father's race, but frace is not that much related to baby birth weight, frace is likely to be a confounder.
+
+
 Propose a regression model for birthweight. This model may be based on a hypothesized structure for the factors that underly birthweight, on a data-driven model-building process, or a combination of the two. Describe your modeling process and show a plot of model residuals against fitted values – use add_predictions and  add_residuals in making this plot.
+
+```{r bthwt_lm1}
+fit1 = lm(bwt ~ babysex + bhead + blength + delwt + fincome + frace + gaweeks + malform + menarche + mheight + momage + mrace + parity + pnumlbw + pnumsga + ppbmi + ppwt + smoken + wtgain , data = bthwt_data)
+
+summary(fit1)
+```
+
+Comment: When put all variables in the model as predictors, 8 showed high statistical significance at level of 0.05: babysex2, bhead, blength, delwt, gaweeks, mrace2, parity and smoken. fincome has a p-value of 0.1. Considering frace a possible confounder, fit the model again without frace:
+
+```{r bthwt_lm2}
+fit2 = lm(bwt ~ babysex + bhead + blength + delwt + fincome + gaweeks + malform + menarche + mheight + momage + mrace + parity + pnumlbw + pnumsga + ppbmi + ppwt + smoken + wtgain , data = bthwt_data)
+
+summary(fit2)
+```
+
+Comment: mrace 3 become significant at 0.1 level but adjusted R squar barely changed, indicating frace contributing nothing to the model. malform and ppbmi have large p-values, fit new model without them: 
+
+```{r bthwt_lm3}
+fit3 = lm(bwt ~ babysex + bhead + blength + delwt + fincome + gaweeks + menarche + mheight + momage + mrace + parity + pnumlbw + pnumsga  + ppwt + smoken + wtgain , data = bthwt_data)
+
+summary(fit3)
+```
+
+Comment: ppwt, mrace 4, mheight become significant, indicating ppbmi is related to these three variables, considering bmi is a better indicator combing weight and height, put ppbmi back and remove ppwt and mheight:
+
+```{r bthwt_lm4}
+fit4 = lm(bwt ~ babysex + bhead + blength + delwt + fincome + gaweeks + menarche + momage + mrace + parity + pnumlbw + pnumsga  + ppbmi + smoken + wtgain , data = bthwt_data)
+
+summary(fit4)
+```
+
+Comment: fincome, mrace3 and wtgain become significant at level of 0.1, momage and menarche are still insignificant. Considering menarche is less likely to relate to baby weight in biological mechanisms, remove it first. When menarche is removed, momage is even less significant. The pnumlbw and pnumsga are not defined because of singularities, by reviewing dataset, we fought these two variables are all 0 for all patients, thus they are removed from model, although highly medically meaningful in concept. 
+
+```{r bthwt_lm5}
+fit5 = lm(bwt ~ babysex + bhead + blength + delwt + fincome + gaweeks + mrace + parity  + ppbmi + smoken + wtgain , data = bthwt_data)
+
+summary(fit5)
+```
+
 
 Compare your model to two others:
 
@@ -134,5 +194,27 @@ One using length at birth and gestational age as predictors (main effects only)
 One using head circumference, length, sex, and all interactions (including the three-way interaction) between these
 Make this comparison in terms of the cross-validated prediction error; use crossv_mc and functions in purrr as appropriate.
 
-Note that although we expect your model to be reasonable, model building itself is not a main idea of the course and we don’t necessarily expect your model to be “optimal”.
+```{r bthwt_cv_rmse}
+set.seed(1)
+
+cv_df =
+  crossv_mc(bthwt_data, 4342) %>% 
+  mutate(train = map(train, as_tibble),
+         test = map(test, as_tibble)) %>% 
+  mutate(meo_mod = map(train, ~lm(bwt ~ gaweeks, data = .x)),
+         thr_mod = map(train, ~lm(bwt ~ bhead + blength + babysex + bhead*blength + bhead*babysex + blength*babysex 
+                                  + bhead*blength*babysex, data = .x)),
+         fit5_mod = map(train, ~lm(bwt ~ babysex + bhead + blength + delwt + fincome + gaweeks + 
+                                     mrace + parity  + ppbmi + smoken + wtgain, data = as_tibble(.x)))) %>% 
+  mutate(rmse_meo  = map2_dbl(meo_mod, test, ~rmse(model = .x, data = .y)),
+         rmse_thr  = map2_dbl(thr_mod, test, ~rmse(model = .x, data = .y)),
+         rmse_fit5 = map2_dbl(fit5_mod, test, ~rmse(model = .x, data = .y))) %>% 
+  select(starts_with("rmse")) %>% 
+  gather(key = model, value = rmse) %>% 
+  mutate(model = str_replace(model, "rmse_", ""),
+         model = fct_inorder(model)) %>% 
+  ggplot(aes(x = model, y = rmse)) + geom_violin()
+```
+
+Comment: The main effects only model have much higher rmse than the three predictor interaction model and multi-predictor model. The rmse of three predictor interaction model is slightly higher than the multi-predictor model, but the difference is small.
 
